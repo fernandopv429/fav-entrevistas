@@ -1,0 +1,3 @@
+# Única dependência do runtime. A versão é a mesma que roda em .pylibs no
+# ambiente local, para o container não divergir do que foi testado.
+psycopg[binary]==3.3.4

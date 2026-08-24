@@ -1,0 +1,141 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caso trabalhista</title>
+<style>
+  :root {
+    --fundo:#fff; --papel:#f6f8f8; --linha:#dde4e5; --tinta:#16292b;
+    --fraca:#5d7477; --acento:#0f5e63; --ok:#2f6b3f; --ok-f:#e2f0e6;
+    --parar:#8c3126; --parar-f:#f7dedb; --alerta:#8a5a10; --alerta-f:#f8ecd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo:#131f21; --papel:#0e1819; --linha:#2b3d40; --tinta:#e3edee;
+      --fraca:#94a9ac; --acento:#57bfc2; --ok:#8fce9f; --ok-f:#1a3323;
+      --parar:#e8a094; --parar-f:#3a201c; --alerta:#e6bd76; --alerta-f:#372c14;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:12px;background:var(--fundo);color:var(--tinta);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  h2{font-size:13px;margin:16px 0 6px;color:var(--fraca);font-weight:600;
+     text-transform:uppercase;letter-spacing:.07em}
+  h2:first-child{margin-top:0}
+  .estado{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:4px;
+          border:1px solid var(--linha);background:var(--papel);margin-bottom:6px}
+  .selo{font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;white-space:nowrap}
+  .selo.ok{background:var(--ok-f);color:var(--ok)}
+  .selo.parar{background:var(--parar-f);color:var(--parar)}
+  .selo.alerta{background:var(--alerta-f);color:var(--alerta)}
+  table{width:100%;border-collapse:collapse}
+  td{padding:5px 0;border-bottom:1px solid var(--linha);vertical-align:top}
+  td:first-child{color:var(--fraca);width:42%;padding-right:10px}
+  td:last-child{font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:0}
+  .verba{display:flex;justify-content:space-between;gap:10px;padding:4px 0;
+         border-bottom:1px solid var(--linha)}
+  .verba b{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .aviso{padding:9px 11px;border-radius:4px;background:var(--parar-f);
+         color:var(--parar);font-size:13px;margin-bottom:6px}
+  .vazio{color:var(--fraca);padding:22px 0;text-align:center}
+  .rodape{margin-top:14px;padding-top:9px;border-top:1px solid var(--linha);
+          font-size:11px;color:var(--fraca)}
+  code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fraca)}
+</style>
+
+<div id="alvo"><p class="vazio">carregando…</p></div>
+
+<script>
+// O Chatwoot embute este painel num iframe e manda o contexto da conversa por
+// postMessage. A URL é a mesma em todas as conversas — quem decide o que
+// mostrar é esta página, porque o app do painel não aceita escopo por equipe
+// nem por caixa.
+const alvo = document.getElementById('alvo');
+const params = new URLSearchParams(location.search);
+const token = params.get('t') || '';
+
+function texto(v) {
+  return (v === null || v === undefined || v === '') ? '—' : String(v);
+}
+function linha(rot, val) {
+  return '<tr><td>' + rot + '</td><td>' + texto(val) + '</td></tr>';
+}
+
+function desenhar(d) {
+  if (!d || !d.encontrado) {
+    alvo.innerHTML = '<p class="vazio">Nenhum caso registrado para esta conversa.<br>' +
+      'Use a macro <b>✅ Entrevista completa</b> para gerar.</p>';
+    return;
+  }
+  const e = d.entrevista || {};
+  const p = d.peticao;
+  let h = '';
+
+  const selo = d.status === 'concluida'
+    ? '<span class="selo ok">pronta para gerar</span>'
+    : '<span class="selo alerta">' + texto(d.status) + '</span>';
+  h += '<div class="estado">' + selo +
+       '<span><b>' + d.campos + '</b> de ' + d.campos_roteiro + ' campos coletados</span></div>';
+
+  h += '<h2>Reclamante</h2><table>' +
+       linha('Nome', e.RECL_NOME) + linha('CPF', e.RECL_CPF) +
+       linha('Função', e.FUNCAO) + linha('Cidade do posto', d.municipio) + '</table>';
+
+  h += '<h2>Contrato</h2><table>' +
+       linha('Empresa', e.RECL1_NOME) + linha('CNPJ', e.RECL1_CNPJ) +
+       linha('Tomadora', e.RECL2_NOME) +
+       linha('Admissão', e.DATA_ADMISSAO) + linha('Rescisão', e.DATA_RESCISAO) +
+       linha('Salário', e.SALARIO) + linha('Dispensa', e.tipo_dispensa) +
+       linha('Escala', e.escala) + linha('Horário', e.JORNADA_HORARIO) + '</table>';
+
+  if (p) {
+    h += '<h2>Petição</h2>';
+    if (!p.aprovado && p.bloqueios && p.bloqueios.length) {
+      h += '<div class="aviso"><b>Barrada pelo gate</b><br>' +
+           p.bloqueios.map(function (b) { return b; }).join('<br>') + '</div>';
+    }
+    h += '<table>' +
+         linha('Valor da causa', p.valor_causa) + linha('Rito', p.rito) +
+         linha('Registro', p.registro_id) + '</table>';
+    if (p.verbas && p.verbas.length) {
+      h += '<h2>Verbas (' + p.verbas.length + ')</h2>';
+      h += p.verbas.map(function (v) {
+        return '<div class="verba"><span>' + texto(v.rubrica) +
+               '</span><b>' + texto(v.total) + '</b></div>';
+      }).join('');
+    }
+  } else {
+    h += '<h2>Petição</h2><p class="vazio">Ainda não gerada.<br>' +
+         'Use a macro <b>📄 Gerar petição</b>.</p>';
+  }
+
+  h += '<div class="rodape">caso <code>' + texto(d.entrevista_id) +
+       '</code> · atualizado ' + texto(d.atualizado_em) + '</div>';
+  alvo.innerHTML = h;
+}
+
+function buscar(conta, conversa) {
+  fetch('dados?conta=' + conta + '&conversa=' + conversa + '&t=' + encodeURIComponent(token))
+    .then(function (r) { return r.json(); })
+    .then(desenhar)
+    .catch(function (e) {
+      alvo.innerHTML = '<div class="aviso">Não consegui ler o caso: ' + e + '</div>';
+    });
+}
+
+// O contexto pode vir como objeto ou como string JSON, dependendo da versão.
+window.addEventListener('message', function (ev) {
+  let d = ev.data;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return; } }
+  const ctx = (d && (d.data || d)) || {};
+  const conv = ctx.conversation || {};
+  const conta = (ctx.currentAgent && ctx.currentAgent.account_id) || conv.account_id || 1;
+  const id = conv.display_id || conv.id;
+  if (id) buscar(conta, id);
+});
+
+// Alguns builds só mandam o contexto depois de o app avisar que está pronto.
+try { window.parent.postMessage('chatwoot-dashboard-app:fetch-info', '*'); } catch (e) {}
+
+// fora do Chatwoot, aceita ?conta=&conversa= para teste direto
+if (params.get('conversa')) buscar(params.get('conta') || 1, params.get('conversa'));

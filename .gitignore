@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pdf
+.mcp.json
+
+# Driver do Postgres extraído à mão porque esta máquina não tem pip.
+# São 21 MB de .so compilados para linux-x86_64/cpython-312 — 50x o tamanho do
+# projeto, e reproduzíveis por requirements.txt. Fica fora do repositório.
+.pylibs/

@@ -1,0 +1,29 @@
+# Alternativa ao build pack "Dockerfile" do Coolify, e o jeito de rodar local.
+#
+# Não há volume: o serviço não escreve em disco. O estado todo mora no Postgres
+# apontado por DATABASE_URL.
+services:
+  ingestao:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      # obrigatórias
+      DATABASE_URL:        ${DATABASE_URL:?defina DATABASE_URL}
+      INGESTAO_API_KEY:    ${INGESTAO_API_KEY:?defina INGESTAO_API_KEY}
+      # Chatwoot — sem elas a retomada por etiqueta não funciona
+      CHATWOOT_BASE_URL:   ${CHATWOOT_BASE_URL:-}
+      CHATWOOT_API_TOKEN:  ${CHATWOOT_API_TOKEN:-}
+      CHATWOOT_ACCOUNT_ID: ${CHATWOOT_ACCOUNT_ID:-}
+      ETIQUETA_RETOMAR:    ${ETIQUETA_RETOMAR:-retomar-entrevista}
+      # só se o webhook do Chatwoot apontar direto para cá, sem passar pelo n8n
+      CHATWOOT_WEBHOOK_SECRET: ${CHATWOOT_WEBHOOK_SECRET:-}
+      INGESTAO_HOST: 0.0.0.0
+      INGESTAO_PORT: 8088
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/saude', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,15 @@
+# segredos: no Coolify as variáveis são configuradas na interface
+.env
+.mcp.json
+
+# o container instala o psycopg pelo requirements.txt
+.pylibs/
+.venv/
+
+__pycache__/
+*.pyc
+*.pdf
+
+.git/
+.gitignore
+*.md

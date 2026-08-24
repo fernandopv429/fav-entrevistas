@@ -1,0 +1,866 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ingestão de entrevistas trabalhistas",
+    "version": "1.1.0",
+    "description": "Grava no banco os dados da entrevista trabalhista coletados na conversa. Nenhum campo além de RECL_NOME é obrigatório: mande os campos aos poucos, conforme o cliente responde. Cada chamada grava o que veio e devolve o que ainda falta e qual a próxima pergunta a fazer.\n\nIDENTIFICAÇÃO: mande sempre chatwoot_account_id JUNTO com chatwoot_conversation_id. O id da conversa no Chatwoot é o display_id, sequencial por conta — sem a conta ele não identifica, e a requisição é recusada com 422. Se tiver o uuid da conversa, mande também: é único global.\n\nCONTINUIDADE: uma entrevista atravessa várias conversas. Quando a conversa é resolvida e o cliente volta a falar noutra, o serviço reencontra o caso pelo contato e continua de onde parou — nada se perde.\n\nCASO JÁ CONCLUÍDO: por padrão uma mensagem nova abre um caso novo, para não alterar peça já revisada. Para retomar o caso concluído, a conversa precisa ter a etiqueta de retomada (padrão 'retomar-entrevista'); mande as etiquetas em 'etiquetas'. Sem saber as etiquetas, o serviço abre caso novo por segurança.\n\nVALORES: linguagem natural é convertida ('sim', '12/04/1988', 'R$ 2.148,22'); o que for ambíguo volta em 'erros' sem ser gravado — nesse caso pergunte de novo de forma mais específica."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8088",
+      "description": "trocar pela URL pública do serviço"
+    }
+  ],
+  "security": [
+    {
+      "ApiKey": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "Estado": {
+        "type": "object",
+        "description": "Estado da entrevista depois da gravação.",
+        "properties": {
+          "entrevista_id": {
+            "type": "integer"
+          },
+          "codigo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "rascunho",
+              "em_andamento",
+              "aguardando_cliente",
+              "aguardando_revisao",
+              "concluida",
+              "cancelada"
+            ]
+          },
+          "reclamante": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "criada": {
+            "type": "boolean",
+            "description": "true quando esta chamada criou a entrevista"
+          },
+          "aceitos": {
+            "type": "object",
+            "description": "campos gravados, já convertidos para o tipo da coluna"
+          },
+          "ignorados": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "campos que não existem no roteiro; ficam guardados à parte e não vão para a petição"
+          },
+          "erros": {
+            "type": "array",
+            "description": "valores que não deu para entender com segurança e NÃO foram gravados — pergunte de novo",
+            "items": {
+              "type": "object",
+              "properties": {
+                "campo": {
+                  "type": "string"
+                },
+                "valor": {},
+                "motivo": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "campos_preenchidos": {
+            "type": "integer"
+          },
+          "campos_no_roteiro": {
+            "type": "integer"
+          },
+          "faltando": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "proxima_pergunta": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "a próxima pergunta do roteiro — use este texto para continuar a conversa",
+            "properties": {
+              "campo": {
+                "type": "string"
+              },
+              "pergunta": {
+                "type": "string"
+              },
+              "tipo": {
+                "type": "string"
+              },
+              "opcoes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "secao": {
+                "type": "string"
+              },
+              "efeito_se_faltar": {
+                "type": "string"
+              }
+            }
+          },
+          "reclamadas": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "pronta_para_peticao": {
+            "type": "boolean"
+          },
+          "vinculo": {
+            "type": "object",
+            "description": "como o caso foi identificado — confira quando quiser saber por que caiu neste caso",
+            "properties": {
+              "resolvida_por": {
+                "type": "string",
+                "enum": [
+                  "entrevista_id",
+                  "codigo",
+                  "uuid_da_conversa",
+                  "conversa",
+                  "contato_caso_aberto",
+                  "contato_caso_retomado_por_etiqueta",
+                  "caso_novo_apos_fechado",
+                  "nenhuma"
+                ]
+              },
+              "etiquetas": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "retomada_por_etiqueta": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "observacao": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Entrada": {
+        "type": "object",
+        "description": "Identifique a entrevista por chatwoot_conversation_id (recomendado), codigo ou entrevista_id. Os campos podem vir em 'campos', em 'entrevista' ou na própria raiz.",
+        "properties": {
+          "chatwoot_conversation_id": {
+            "type": "integer",
+            "description": "o display_id da conversa — o número que o Chatwoot mostra como 'id'. Sequencial por conta, então nunca mande sem chatwoot_account_id"
+          },
+          "chatwoot_account_id": {
+            "type": "integer",
+            "description": "obrigatório sempre que mandar chatwoot_conversation_id"
+          },
+          "chatwoot_inbox_id": {
+            "type": "integer"
+          },
+          "entrevista_id": {
+            "type": "integer"
+          },
+          "codigo": {
+            "type": "string",
+            "description": "identificador do caso no escritório"
+          },
+          "mensagem_id": {
+            "type": "integer",
+            "description": "id da mensagem do Chatwoot que originou as respostas"
+          },
+          "municipio": {
+            "type": "string",
+            "description": "município da prestação de serviço"
+          },
+          "status": {
+            "type": "string"
+          },
+          "contato": {
+            "type": "object",
+            "properties": {
+              "chatwoot_contact_id": {
+                "type": "integer"
+              },
+              "nome": {
+                "type": "string"
+              },
+              "telefone": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            }
+          },
+          "campos": {
+            "type": "object",
+            "description": "Campos da entrevista. Use os nomes abaixo. Só RECL_NOME é indispensável para criar o registro.",
+            "properties": {
+              "RECL_NOME": {
+                "type": "string",
+                "description": "nome completo do reclamante (único obrigatório)"
+              },
+              "RECL_CPF": {
+                "type": "string"
+              },
+              "RECL_RG": {
+                "type": "string"
+              },
+              "RECL_PIS": {
+                "type": "string"
+              },
+              "RECL_CTPS": {
+                "type": "string"
+              },
+              "RECL_SERIE": {
+                "type": "string"
+              },
+              "RECL_NASC": {
+                "type": "string",
+                "description": "data: AAAA-MM-DD, DD/MM/AAAA ou '12 de abril de 1988'"
+              },
+              "RECL_FILIACAO": {
+                "type": "string"
+              },
+              "RECL_ENDERECO": {
+                "type": "string"
+              },
+              "RECL_CEP": {
+                "type": "string"
+              },
+              "RECL_NACIONALIDADE": {
+                "type": "string"
+              },
+              "RECL_ESTADOCIVIL": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "RECL1_NOME": {
+                "type": "string",
+                "description": "razão social da empregadora"
+              },
+              "RECL1_CNPJ": {
+                "type": "string"
+              },
+              "RECL1_LOGRADOURO": {
+                "type": "string"
+              },
+              "RECL1_ENDCOMPL": {
+                "type": "string",
+                "description": "cidade/UF e CEP da empregadora"
+              },
+              "RECL2_NOME": {
+                "type": "string",
+                "description": "tomadora de serviços, quando houver"
+              },
+              "RECL2_CNPJ": {
+                "type": "string"
+              },
+              "RECL2_LOGRADOURO": {
+                "type": "string",
+                "description": "se faltar: endereço da tomadora incompleto"
+              },
+              "RECL2_ENDCOMPL": {
+                "type": "string",
+                "description": "cidade/UF da tomadora — define a competência"
+              },
+              "RECL3_NOME": {
+                "type": "string"
+              },
+              "RECL3_CNPJ": {
+                "type": "string"
+              },
+              "RECL3_LOGRADOURO": {
+                "type": "string",
+                "description": "se faltar: endereço da terceira reclamada incompleto"
+              },
+              "RECL3_ENDCOMPL": {
+                "type": "string"
+              },
+              "DATA_ADMISSAO": {
+                "type": "string",
+                "description": "data da admissão"
+              },
+              "DATA_RESCISAO": {
+                "type": "string",
+                "description": "último dia de trabalho"
+              },
+              "FUNCAO": {
+                "type": "string",
+                "description": "cargo exercido"
+              },
+              "SALARIO": {
+                "type": "string",
+                "description": "salário-base, ex.: 'R$ 2.148,22'"
+              },
+              "tipo_dispensa": {
+                "type": "string",
+                "enum": [
+                  "sem_justa_causa",
+                  "rescisao_indireta",
+                  "coacao_demissao",
+                  "nulidade_pedido_demissao",
+                  "reversao_justa_causa",
+                  "acordo"
+                ],
+                "description": "aceita parte do nome, ex.: 'indireta'"
+              },
+              "escala": {
+                "type": "string",
+                "description": "ex.: '12x36', '6x1'"
+              },
+              "JORNADA_HORARIO": {
+                "type": "string",
+                "description": "ex.: 'das 19h às 07h'"
+              },
+              "tem_adic_noturno": {
+                "type": "boolean",
+                "description": "trabalhava entre 22h e 5h; aceita 'sim'/'não'"
+              },
+              "finais_semana": {
+                "type": "boolean",
+                "description": "domingos e feriados trabalhados"
+              },
+              "intervalo_suprimido": {
+                "type": "boolean"
+              },
+              "INTERVALO_GOZADO": {
+                "type": "string",
+                "description": "quanto de intervalo usufruía de fato"
+              },
+              "media_horas_extras": {
+                "type": "string",
+                "description": "ex.: 'Até 1 hora'"
+              },
+              "periodo_antecedente": {
+                "type": "integer",
+                "description": "minutos residuais antes da jornada (ex.: '30 minutos')"
+              },
+              "periodo_sucedente": {
+                "type": "integer",
+                "description": "minutos residuais depois da jornada (ex.: '20 minutos')"
+              },
+              "folgas_trabalhadas": {
+                "type": "boolean"
+              },
+              "FT_QTD_MEDIA": {
+                "type": "string",
+                "description": "folgas por mês; aceita faixa '5 a 6'"
+              },
+              "VAL_FT": {
+                "type": "string",
+                "description": "valor por folga; aceita faixa 'R$ 180 a R$ 200'"
+              },
+              "ft_pagamento": {
+                "type": "string",
+                "description": "se faltar: capítulo das folgas fica com narrativa genérica"
+              },
+              "vale_refeicao": {
+                "type": "boolean"
+              },
+              "vale_alimentacao": {
+                "type": "boolean"
+              },
+              "vale_transporte": {
+                "type": "boolean"
+              },
+              "VALOR_AUX_ALIMENTACAO": {
+                "type": "string",
+                "description": "se faltar: o motor lê o valor da cláusula do tíquete-refeição na CCT"
+              },
+              "VAL_CONDUCAO": {
+                "type": "string",
+                "description": "se faltar: o pedido de vale-transporte nas folgas não sai: a CCT obriga o benefício mas não declara valor"
+              },
+              "acumulo_funcao": {
+                "type": "boolean"
+              },
+              "funcoes_acumuladas": {
+                "type": "string",
+                "description": "quais atividades a mais fazia"
+              },
+              "tem_periculosidade": {
+                "type": "boolean"
+              },
+              "tem_insalubridade": {
+                "type": "boolean"
+              },
+              "tem_doenca": {
+                "type": "boolean",
+                "description": "doença desenvolvida por causa do trabalho"
+              },
+              "gratificacao": {
+                "type": "boolean",
+                "description": "recebia gratificação de função ou prêmio; o texto vai em gratificacao_qual"
+              },
+              "gratificacao_qual": {
+                "type": "string",
+                "description": "se faltar: o motor pode classificar a verba errada: gratificação de função e prêmio de assiduidade têm cálculos diferentes"
+              },
+              "assiduidade": {
+                "type": "boolean"
+              },
+              "assiduidade_prometido": {
+                "type": "string",
+                "description": "se faltar: a verba não é calculada"
+              },
+              "assiduidade_pago": {
+                "type": "string",
+                "description": "se faltar: a verba não é calculada: o pedido é a diferença (art. 457, § 1º)"
+              },
+              "desconto_indevido": {
+                "type": "boolean"
+              },
+              "desconto_qual": {
+                "type": "string"
+              },
+              "holerites": {
+                "type": "boolean",
+                "description": "cliente tem os holerites"
+              },
+              "espelho_ponto": {
+                "type": "boolean"
+              },
+              "fatos_narrados": {
+                "type": "string",
+                "description": "relato livre do cliente, nas palavras dele — é o que dá os fatos concretos à petição"
+              },
+              "ferias": {
+                "type": "boolean",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "ferias_quantidade": {
+                "type": "string",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "armamento_colete": {
+                "type": "boolean",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "produtos": {
+                "type": "string",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "epi": {
+                "type": "boolean",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "testemunha": {
+                "type": "string",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "ft_comprovante": {
+                "type": "boolean",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "horas_extras": {
+                "type": "boolean",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "rescisao_contratual": {
+                "type": "boolean",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "telefone": {
+                "type": "string",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "modelo_peticao": {
+                "type": "string",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              },
+              "titulo": {
+                "type": "string",
+                "description": "coletado, mas hoje o motor de petições ignora"
+              }
+            }
+          },
+          "chatwoot_conversation_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "uuid da conversa, quando disponível: único global, é a âncora mais forte"
+          },
+          "etiquetas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "etiquetas (labels) da conversa no Chatwoot. Necessário para retomar um caso já concluído: se contiver a etiqueta de retomada, o caso volta a ser preenchido em vez de abrir outro. Mande [] quando não houver etiqueta — [] e omitir são diferentes: omitir significa 'não sei', e aí o serviço não sobrescreve caso concluído"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/entrevistas": {
+      "post": {
+        "operationId": "gravarEntrevista",
+        "summary": "Cria ou atualiza a entrevista com os dados coletados na conversa",
+        "description": "Chame isto sempre que o cliente informar algo novo. Mande chatwoot_account_id e chatwoot_conversation_id juntos, e as etiquetas da conversa em 'etiquetas'. Na resposta: use 'proxima_pergunta' para continuar a entrevista, confira 'erros' (não foi gravado, pergunte de novo) e 'vinculo.resolvida_por' se precisar saber em qual caso os dados entraram.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Entrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "entrevista atualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estado"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "entrevista criada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estado"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "X-API-Key ausente ou inválida"
+          },
+          "422": {
+            "description": "corpo inválido; conversa enviada sem chatwoot_account_id; ou tentativa de criar entrevista sem RECL_NOME"
+          }
+        }
+      },
+      "get": {
+        "operationId": "acharEntrevista",
+        "summary": "Acha a entrevista de uma conversa do Chatwoot",
+        "parameters": [
+          {
+            "name": "conversa",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "chatwoot_conversation_id"
+          },
+          {
+            "name": "conta",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "chatwoot_account_id"
+          },
+          {
+            "name": "codigo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "estado da entrevista",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estado"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "nenhuma entrevista para esses parâmetros"
+          }
+        }
+      }
+    },
+    "/entrevistas/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "lerEntrevista",
+        "summary": "Estado atual da entrevista",
+        "responses": {
+          "200": {
+            "description": "estado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estado"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "não encontrada"
+          }
+        }
+      },
+      "post": {
+        "operationId": "gravarEntrevistaPorId",
+        "summary": "Grava campos numa entrevista já conhecida",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Entrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "atualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estado"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/entrevistas/{id}/proxima-pergunta": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "proximaPergunta",
+        "summary": "Só a próxima pergunta a fazer",
+        "responses": {
+          "200": {
+            "description": "próxima pergunta"
+          }
+        }
+      }
+    },
+    "/entrevistas/{id}/pergunta-pendente": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "marcarPerguntaPendente",
+        "summary": "Registra que a pergunta foi enviada e aguarda resposta",
+        "description": "Use depois de enviar a pergunta ao cliente. Muda o status para aguardando_cliente; quando a resposta chegar e for gravada, volta para em_andamento.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "campo"
+                ],
+                "properties": {
+                  "campo": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "marcada"
+          }
+        }
+      }
+    },
+    "/entrevistas/{id}/documentos": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "registrarDocumento",
+        "summary": "Registra um anexo recebido na conversa (holerite, espelho de ponto)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tipo": {
+                    "type": "string",
+                    "description": "ex.: holerite, espelho_ponto, ctps, rescisao"
+                  },
+                  "nome_arquivo": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "mime": {
+                    "type": "string"
+                  },
+                  "tamanho_bytes": {
+                    "type": "integer"
+                  },
+                  "chatwoot_message_id": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "registrado"
+          }
+        }
+      }
+    },
+    "/entrevistas/{id}/concluir": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "concluirEntrevista",
+        "summary": "Marca a entrevista como concluída",
+        "description": "Use quando o cliente terminar de responder. Não é preciso ter tudo preenchido: a resposta avisa quantos campos ficaram em branco.",
+        "responses": {
+          "200": {
+            "description": "concluída"
+          }
+        }
+      }
+    },
+    "/entrevistas/{id}/payload": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "verPayload",
+        "summary": "Confere o JSON que será enviado à API de petições",
+        "responses": {
+          "200": {
+            "description": "payload"
+          }
+        }
+      }
+    },
+    "/roteiro": {
+      "get": {
+        "operationId": "lerRoteiro",
+        "summary": "Todas as perguntas do roteiro, na ordem",
+        "responses": {
+          "200": {
+            "description": "roteiro completo"
+          }
+        }
+      }
+    },
+    "/saude": {
+      "get": {
+        "operationId": "saude",
+        "summary": "Healthcheck (não exige chave)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "serviço e banco no ar"
+          },
+          "503": {
+            "description": "banco inacessível"
+          }
+        }
+      }
+    }
+  }
+}
