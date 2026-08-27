@@ -87,7 +87,7 @@ BEGIN
     -- reclamante
     j := jsonb_build_object(
         'RECL_NOME',          e.recl_nome,
-        'RECL_CPF',           e.recl_cpf,
+        'RECL_CPF',           peticoes.fmt_documento(e.recl_cpf),
         'RECL_RG',            e.recl_rg,
         'RECL_PIS',           e.recl_pis,
         'RECL_CTPS',          e.recl_ctps,
@@ -166,9 +166,9 @@ BEGIN
     LOOP
         j := j || jsonb_build_object(
             format('RECL%s_NOME', r.ordem),       r.nome,
-            format('RECL%s_CNPJ', r.ordem),       r.cnpj,
+            format('RECL%s_CNPJ', r.ordem),       peticoes.fmt_documento(r.cnpj),
             format('RECL%s_LOGRADOURO', r.ordem), r.logradouro,
-            format('RECL%s_ENDCOMPL', r.ordem),   r.endcompl
+            format('RECL%s_ENDCOMPL', r.ordem),   peticoes.fmt_cidade_uf(r.endcompl)
         );
     END LOOP;
 
@@ -202,7 +202,7 @@ BEGIN
         'entrevista',         peticoes.montar_entrevista(p_entrevista_id),
         'codigo',             COALESCE(e.codigo, e.id::text),
         'salario',            peticoes.fmt_brl(e.salario),
-        'municipio',          e.municipio,
+        'municipio',          peticoes.fmt_cidade_uf(e.municipio),
         'redigir_ia',         e.redigir_ia,
         'gerar_pdf',          e.gerar_pdf,
         'persistir',          e.persistir,
