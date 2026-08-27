@@ -115,7 +115,7 @@ function desenhar(d) {
 }
 
 function buscar(conta, conversa) {
-  fetch('dados?conta=' + conta + '&conversa=' + conversa + '&t=' + encodeURIComponent(token))
+  fetch('/painel/dados?conta=' + conta + '&conversa=' + conversa + '&t=' + encodeURIComponent(token))
     .then(function (r) { return r.json(); })
     .then(desenhar)
     .catch(function (e) {
@@ -139,3 +139,4 @@ try { window.parent.postMessage('chatwoot-dashboard-app:fetch-info', '*'); } cat
 
 // fora do Chatwoot, aceita ?conta=&conversa= para teste direto
 if (params.get('conversa')) buscar(params.get('conta') || 1, params.get('conversa'));
+</script>
